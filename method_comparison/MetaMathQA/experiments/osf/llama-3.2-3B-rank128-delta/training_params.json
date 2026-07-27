@@ -1,0 +1,7 @@
+{
+  "model_id": "unsloth/Llama-3.2-3B",
+  "autocast_adapter_dtype": false,
+  "optimizer_kwargs": {
+    "lr": 5e-5
+  }
+}
