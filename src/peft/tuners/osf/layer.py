@@ -160,31 +160,27 @@ class OSFLayer(BaseTunerLayer):
             #
             # When the factor is NOT square, the orthogonal complement has a null-space
             # component that U_low_init cannot capture, so we fall back to U_high.
-            #
-            # The projection is performed in float32 for half-precision parameters to
-            # avoid numerical degradation of the orthonormality conditions.
-            compute_dtype = torch.float32 if grad.dtype in (torch.bfloat16, torch.float16) else grad.dtype
-            grad_f = grad.to(compute_dtype)
             if name == "U_low":
                 if adapter in layer._osf_U_high:
                     # Non-square case: use stored U_high
-                    U_high = layer._osf_U_high[adapter].to(compute_dtype)
-                    proj = U_high @ (U_high.transpose(0, 1) @ grad_f)
-                    return (grad_f - proj).to(grad.dtype)
+                    U_high = layer._osf_U_high[adapter]
+                    proj = U_high @ (U_high.transpose(0, 1) @ grad)
+                    return grad - proj
                 else:
-                    # Square case: (I - U_high @ U_high^T) = U_low_init @ U_low_init^T
-                    U_low_init = layer._osf_U_low_init[adapter].to(compute_dtype)
-                    return (U_low_init @ (U_low_init.transpose(0, 1) @ grad_f)).to(grad.dtype)
+                    # Square case: (I - U_high @ U_high^T) = U_low_init @ U_low_init^T,
+                    # so the projection is simply U_low_init @ (U_low_init^T @ grad).
+                    U_low_init = layer._osf_U_low_init[adapter]
+                    return U_low_init @ (U_low_init.transpose(0, 1) @ grad)
             elif name == "V_low":
                 if adapter in layer._osf_V_high:
                     # Non-square case: use stored V_high
-                    V_high = layer._osf_V_high[adapter].to(compute_dtype)
-                    proj = (grad_f @ V_high.transpose(0, 1)) @ V_high
-                    return (grad_f - proj).to(grad.dtype)
+                    V_high = layer._osf_V_high[adapter]
+                    proj = (grad @ V_high.transpose(0, 1)) @ V_high
+                    return grad - proj
                 else:
                     # Square case: grad @ (I - V_high^T @ V_high) = grad @ V_low_init^T @ V_low_init
-                    V_low_init = layer._osf_V_low_init[adapter].to(compute_dtype)
-                    return ((grad_f @ V_low_init.transpose(0, 1)) @ V_low_init).to(grad.dtype)
+                    V_low_init = layer._osf_V_low_init[adapter]
+                    return (grad @ V_low_init.transpose(0, 1)) @ V_low_init
             return grad
 
         # Store hook handles for later cleanup
@@ -200,24 +196,13 @@ class OSFLayer(BaseTunerLayer):
         self.hook_handles.clear()
 
     def _compute_delta(self, adapter_name: str) -> torch.Tensor:
-        """Compute the weight delta: current_low_rank - initial_low_rank.
+        """Compute the weight delta: (U_low*S_low*V_low - U_low_init*S_low_init*V_low_init).
 
-        Uses the high-rank component recoverable from the base weight to avoid
-        catastrophic cancellation in low-precision (bf16):
+        This is a low-rank update of size [out_features, in_features], computed as:
+            delta = (U_low * S_low) @ V_low - (U_low_init * S_low_init) @ V_low_init
 
-            delta = (base_weight - initial_low) + current_low - base_weight
-                  = current_low - initial_low
-
-        But computed as:
-
-            delta = current_low - initial_low
-
-        directly. To improve numerical stability, the subtraction is performed
-        in float32 when the parameters are in half precision.
-
-        The intermediate products are [out_features, r] and [r, in_features], so
-        the peak memory is O(r * (out + in)) instead of O(out * in) for the full
-        weight.
+        The intermediate products are [out_features, r] and [r, in_features], so the
+        peak memory is O(r * (out + in)) instead of O(out * in) for the full weight.
         """
         if adapter_name not in self.osf_svd_params:
             return None
@@ -231,16 +216,11 @@ class OSFLayer(BaseTunerLayer):
         S_low_init = self._osf_S_low_init[adapter_name]
         V_low_init = self._osf_V_low_init[adapter_name]
 
-        # Promote to float32 for the subtraction to avoid catastrophic
-        # cancellation in half precision (bf16 has only ~3 decimal digits).
-        compute_dtype = torch.float32 if U_low.dtype in (torch.bfloat16, torch.float16) else U_low.dtype
-
-        current = torch.mm(U_low.to(compute_dtype) * S_low.to(compute_dtype).unsqueeze(0), V_low.to(compute_dtype))
-        initial = torch.mm(
-            U_low_init.to(compute_dtype) * S_low_init.to(compute_dtype).unsqueeze(0), V_low_init.to(compute_dtype)
-        )
-        delta = current - initial
-        return delta.to(U_low.dtype)
+        # Current low-rank component
+        current = torch.mm(U_low * S_low.unsqueeze(0), V_low)
+        # Initial low-rank component (frozen)
+        initial = torch.mm(U_low_init * S_low_init.unsqueeze(0), V_low_init)
+        return current - initial
 
     def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None) -> None:
         """
@@ -327,24 +307,18 @@ class Linear(nn.Module, OSFLayer):
             active_adapter = self.active_adapters[0] if self.active_adapters else None
             if active_adapter and active_adapter in self.osf_svd_params:
                 orig_dtype = x.dtype
-                # Ensure x matches the base layer weight dtype for the base computation
-                base_weight = self.get_base_layer().weight
-                base_dtype = base_weight.dtype
-                x_for_base = x.to(base_dtype) if x.dtype != base_dtype else x
-                result = self.base_layer(x_for_base, *args, **kwargs)
+                # Base output (may run in different precision)
+                result = self.base_layer(x, *args, **kwargs)
 
                 # Compute delta as a low-rank product
                 delta = self._compute_delta(active_adapter)
                 if delta is not None:
-                    # Apply delta as a low-rank update to the output.
+                    # Apply delta as a low-rank update to the output
                     # delta is [out_features, in_features], x is [batch, ..., in_features]
                     # We compute x @ delta^T, which is [batch, ..., out_features]
-                    # Promote to float32 for the addition to avoid losing the small
-                    # delta signal when added to the large base output in half precision.
-                    compute_dtype = torch.float32 if delta.dtype in (torch.bfloat16, torch.float16) else delta.dtype
-                    x_cast = self._cast_input_dtype(x, compute_dtype)
-                    delta_out = F.linear(x_cast, delta.to(compute_dtype))
-                    result = result.to(compute_dtype) + delta_out
+                    x_cast = self._cast_input_dtype(x, delta.dtype)
+                    delta_out = F.linear(x_cast, delta)
+                    result = result.to(delta_out.dtype) + delta_out
                     result = result.to(orig_dtype)
             else:
                 result = self.base_layer(x, *args, **kwargs)
