@@ -1,0 +1,7 @@
+{
+  "model_id": "unsloth/Llama-3.2-3B",
+  "optimizer_kwargs": {
+    "lr": 0.002,
+    "weight_decay": 0.1
+  }
+}
