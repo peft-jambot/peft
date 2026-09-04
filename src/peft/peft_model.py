@@ -39,7 +39,12 @@ from transformers import Cache, DynamicCache, EncoderDecoderCache, PreTrainedMod
 from transformers.modeling_outputs import QuestionAnsweringModelOutput, SequenceClassifierOutput, TokenClassifierOutput
 from transformers.utils import PushToHubMixin
 
-from peft.tuners.lora.variants import get_alora_offsets_for_forward, get_alora_offsets_for_generate
+from peft.tuners.lora.variants import (
+    _AloraOffsetsHolder,
+    get_alora_offsets_for_forward,
+    get_alora_offsets_for_generate,
+    update_alora_offsets_for_generate,
+)
 from peft.tuners.tuners_utils import BaseTuner, BaseTunerLayer
 from peft.utils import AuxiliaryTrainingWrapper
 from peft.utils.constants import DUMMY_MODEL_CONFIG
@@ -2194,7 +2199,12 @@ class PeftModelForCausalLM(PeftModel):
 
     def generate(self, *args, **kwargs):
         peft_config = self.active_peft_config
-        self.base_model.prepare_inputs_for_generation = self.prepare_inputs_for_generation
+        # Note: the generation loop calls self.prepare_inputs_for_generation on the model that generate() is bound
+        # to, which is the transformers model itself (base_model for prompt learning, base_model.model for tuners).
+        # Assign the override there (get_base_model() handles both cases), not on the LoraModel wrapper, where the
+        # attribute would be invisible to the generation loop.
+        base_model = self.get_base_model()
+        base_model.prepare_inputs_for_generation = self.prepare_inputs_for_generation
         if hasattr(self.base_model, "model"):
             self.base_model.model.generation_config = self.generation_config
         else:
@@ -2203,20 +2213,40 @@ class PeftModelForCausalLM(PeftModel):
             if not peft_config.is_prompt_learning:
                 # Adds alora_offsets to kwargs if relevant. No other changes.
                 kwargs = get_alora_offsets_for_generate(self, *args, **kwargs)
+                # When generate calculated the aLoRA offsets itself, they are wrapped in a holder so that
+                # prepare_inputs_for_generation can refresh them at every generation step (invocation tokens may
+                # only be injected into the sequence during generation).
+                alora_offsets = kwargs.get("alora_offsets")
+                if isinstance(alora_offsets, _AloraOffsetsHolder):
+                    self._alora_offsets_holder = alora_offsets
+                    self._alora_offsets_adapter_names = kwargs.get("adapter_names")
+                else:
+                    self._alora_offsets_holder = None
                 with self._enable_peft_forward_hooks(*args, **kwargs):
                     kwargs = {k: v for k, v in kwargs.items() if k not in self.special_peft_forward_args}
                     outputs = self.base_model.generate(*args, **kwargs)
             else:
                 outputs = self.base_model.generate(*args, **kwargs)
-        except Exception:
-            self.base_model.prepare_inputs_for_generation = self.base_model_prepare_inputs_for_generation
-            raise
-        else:
-            self.base_model.prepare_inputs_for_generation = self.base_model_prepare_inputs_for_generation
-            return outputs
+        finally:
+            self._alora_offsets_holder = None
+            base_model.prepare_inputs_for_generation = self.base_model_prepare_inputs_for_generation
+        return outputs
 
     def prepare_inputs_for_generation(self, *args, task_ids: Optional[torch.Tensor] = None, **kwargs):
         peft_config = self.active_peft_config
+        # Refresh the aLoRA offsets at every step of generate. This must happen before calling the base model's
+        # prepare_inputs_for_generation, as that method may trim input_ids to the last token when the KV cache is
+        # used, whereas the offsets need to be calculated on the full sequence. The holder only exists if generate
+        # calculated the offsets itself; offsets passed manually by the user are kept static.
+        holder = getattr(self, "_alora_offsets_holder", None)
+        if holder is not None:
+            input_ids = kwargs.get("input_ids")
+            if input_ids is None and args and isinstance(args[0], torch.Tensor):
+                input_ids = args[0]
+            if input_ids is not None:
+                update_alora_offsets_for_generate(
+                    self, input_ids, holder, adapter_names=self._alora_offsets_adapter_names
+                )
         model_kwargs = self.base_model_prepare_inputs_for_generation(*args, **kwargs)
 
         # https://github.com/huggingface/transformers/pull/26681/ introduced new cache format

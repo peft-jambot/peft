@@ -18,7 +18,7 @@ from unittest.mock import PropertyMock, patch
 import pytest
 import torch
 from torch import nn
-from transformers import AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, LogitsProcessor, LogitsProcessorList
 from transformers.pytorch_utils import Conv1D
 
 from peft import KasaConfig, LoraConfig, TaskType, get_peft_model
@@ -455,6 +455,67 @@ class TestActivatedLora:
                 lora_model.forward(**inputs)
 
             lora_model.forward(**inputs)
+
+    def test_alora_offsets_updated_during_generate(self):
+        """Invocation tokens injected during generation activate the adapter from the step they appear."""
+        model_id = "trl-internal-testing/tiny-random-LlamaForCausalLM"
+
+        with hub_online_once(model_id):
+            base_model = AutoModelForCausalLM.from_pretrained(model_id)
+            cfg = LoraConfig(
+                task_type=TaskType.CAUSAL_LM,
+                target_modules="all-linear",
+                alora_invocation_tokens=[7, 9],
+                init_lora_weights=False,
+            )
+            lora_model = get_peft_model(base_model, cfg)
+            lora_model.eval()
+
+            input_ids = torch.tensor([[1, 2, 3, 4]])
+            prompt_len = input_ids.shape[1]
+
+            class ForceTokensAfterPrompt(LogitsProcessor):
+                # Forces the aLoRA invocation tokens [7, 9] to be generated at steps 0 and 1
+                def __init__(self, forced_tokens):
+                    self.forced_tokens = forced_tokens
+
+                def __call__(self, input_ids, scores):
+                    step = input_ids.shape[1] - prompt_len
+                    if step in self.forced_tokens:
+                        scores[:, :] = torch.finfo(scores.dtype).min
+                        scores[:, self.forced_tokens[step]] = 0.0
+                    return scores
+
+            logits_processor = LogitsProcessorList([ForceTokensAfterPrompt({0: 7, 1: 9})])
+
+            # Capture the alora_offsets that the aLoRA variant receives at each forward call during generate
+            offsets_seen = []
+            original_variant_forward = ALoraLinearVariant.forward
+
+            def offsets_capture_variant_forward(*args, **kwargs):
+                offsets_seen.append(kwargs.get("alora_offsets", "absent"))
+                return original_variant_forward(*args, **kwargs)
+
+            try:
+                ALoraLinearVariant.forward = staticmethod(offsets_capture_variant_forward)
+                with torch.no_grad():
+                    output = lora_model.generate(
+                        input_ids, logits_processor=logits_processor, max_new_tokens=3, do_sample=False
+                    )
+            finally:
+                ALoraLinearVariant.forward = original_variant_forward
+
+            # The invocation tokens are part of the generated sequence
+            assert output[0].tolist() == [1, 2, 3, 4, 7, 9, *output[0, 6:].tolist()]
+
+            # Offsets must have been recomputed during generation: the invocation tokens [7, 9] only appear in the
+            # sequence after generation steps 0 and 1, so the early forward passes see alora_offsets=None while the
+            # forward passes after both invocation tokens were generated must see an offset of 2 (invocation starts
+            # at index 4, sequence len 6). With offsets only being calculated once at the start of generate (on the
+            # prompt), the layers would never see any non-None offset.
+            assert [None] in offsets_seen, f"expected at least one forward pass without aLoRA activation: {offsets_seen}"
+            assert [2] in offsets_seen, f"aLoRA offsets were not refreshed during generate: {offsets_seen}"
+            assert all(o == [None] or o == [2] for o in offsets_seen), f"unexpected offsets: {offsets_seen}"
 
 
 class TestKasaRegularization:

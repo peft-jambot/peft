@@ -651,7 +651,7 @@ class ALoraLinearVariant(LoraVariant):
 
 def calculate_alora_offsets(
     peft_config: PeftConfig, active_adapter: str, input_ids: torch.Tensor, adapter_names: Optional[list[str]] = None
-) -> list[int]:
+) -> list[int | None]:
     """
     This is a helper function for Activated LoRA (aLoRA) that searches each input token sequence for the last
     occurrence of the appropriate "alora_invocation_tokens" invocation sequence. The calculated alora_offset is the
@@ -718,6 +718,39 @@ def calculate_alora_offsets(
             else:  # Invocation sequence not found in input
                 alora_offsets[i] = None
     return alora_offsets
+
+
+class _AloraOffsetsHolder:
+    """Mutable container for aLoRA offsets.
+
+    Used to allow updating the offsets in-place while aLoRA hooks hold a reference to this object, e.g. to refresh the
+    offsets at every step of `generate` (see `update_alora_offsets_for_generate`).
+    """
+
+    def __init__(self, offsets: list[int | None]):
+        self.offsets: list[int | None] = offsets
+
+    def get(self) -> list[int | None]:
+        return self.offsets
+
+
+def update_alora_offsets_for_generate(
+    model: nn.Module, input_ids: torch.Tensor, holder: _AloraOffsetsHolder, adapter_names: Optional[list[str]] = None
+) -> None:
+    """Recompute the aLoRA offsets during each step of `generate`.
+
+    Called from `PeftModelForCausalLM.prepare_inputs_for_generation` so that offsets stay up-to-date when the
+    invocation tokens are only injected into the sequence during generation. The offsets are updated in-place in the
+    holder, whose reference is kept by the aLoRA forward hooks.
+    """
+    if input_ids.ndim == 1:
+        input_ids = input_ids.unsqueeze(0)
+    holder.offsets = calculate_alora_offsets(
+        model.peft_config,
+        model.active_adapter,
+        input_ids,
+        adapter_names=adapter_names,
+    )
 
 
 def is_alora_relevant_in_batch(model: nn.Module, adapter_names: Optional[list[str]] = None):
@@ -796,7 +829,10 @@ def get_alora_offsets_for_generate(model: nn.module, *args, **kwargs):
                 current_input_ids,
                 adapter_names=adapter_names_for_offset_calc,
             )
-            kwargs["alora_offsets"] = calculated_offsets
+            # Wrap the offsets in a holder so that they can be updated in-place at every step of generate (see
+            # update_alora_offsets_for_generate), which is necessary when the invocation tokens are only injected
+            # into the sequence during generation.
+            kwargs["alora_offsets"] = _AloraOffsetsHolder(calculated_offsets)
 
         else:
             warnings.warn(

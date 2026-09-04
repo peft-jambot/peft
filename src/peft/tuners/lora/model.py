@@ -61,6 +61,7 @@ from .layer import Conv2d, LoraLayer, ParamWrapper, dispatch_default
 from .te import dispatch_transformer_engine
 from .torchao import dispatch_torchao
 from .tp_layer import dispatch_megatron
+from .variants import _AloraOffsetsHolder
 
 
 def _adapter_names_pre_forward_hook(target, args, kwargs, adapter_names):
@@ -70,6 +71,8 @@ def _adapter_names_pre_forward_hook(target, args, kwargs, adapter_names):
 
 
 def _alora_offsets_pre_forward_hook(target, args, kwargs, alora_offsets):
+    if isinstance(alora_offsets, _AloraOffsetsHolder):
+        alora_offsets = alora_offsets.get()
     kwargs["alora_offsets"] = alora_offsets
     return args, kwargs
 
