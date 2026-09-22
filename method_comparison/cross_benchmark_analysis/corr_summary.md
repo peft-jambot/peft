@@ -1,16 +1,9 @@
-Test quality (accuracy ↔ DINO sim)	+0.292	0.132	all
-Best valid quality	+0.591	<0.001	all
-Training loss	+0.724	<0.001	all
-Forgetting ↔ drift	+0.430	0.025	all
-Train time	+0.413	0.029	all
-Checkpoint size	+0.795	<0.001	all
-Avg reserved memory	+0.583	0.001	all
-Trainable params	+0.718	<0.001	all
-Test quality (accuracy ↔ DINO sim)	+0.132	0.530	no-outlier
-Best valid quality	+0.495	0.012	no-outlier
-Training loss	+0.678	<0.001	no-outlier
-Forgetting ↔ drift	+0.285	0.167	no-outlier
-Train time	+0.468	0.018	no-outlier
-Checkpoint size	+0.718	<0.001	no-outlier
-Avg reserved memory	+0.459	0.021	no-outlier
-Trainable params	+0.622	<0.001	no-outlier
+metric	all_rho	all_p	noout_rho	noout_p
+Test quality	+0.343	0.051	+0.229	0.224
+Best valid quality	+0.557	0.001	+0.474	0.008
+Training loss	+0.705	0.000	+0.656	0.000
+Forgetting/drift	+0.272	0.133	+0.127	0.505
+Train time	+0.427	0.013	+0.464	0.010
+Checkpoint size	+0.805	0.000	+0.751	0.000
+Avg mem	+0.611	0.000	+0.527	0.003
+N trainable params	+0.768	0.000	+0.715	0.000
