@@ -2511,6 +2511,10 @@ class TestPeftCustomModel(PeftCommonTester):
     def test_adapter_name(self, test_name, model_id, config_cls, config_kwargs):
         self._test_adapter_name(model_id, config_cls, config_kwargs)
 
+    @pytest.mark.parametrize("test_name, model_id, config_cls, config_kwargs", TEST_CASES)
+    def test_base_model_methods_unchanged(self, test_name, model_id, config_cls, config_kwargs):
+        self._test_base_model_methods_unchanged(model_id, config_cls, config_kwargs)
+
     # Note: skipping _test_prepare_for_training: test does not work with custom models because it assumes that there is
     # always a method get_input_embeddings that returns a layer which does not need updates. Instead, a new test is
     # added below that checks that LoRA works as expected.

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import copy
+import inspect
 import json
 import os
 import pickle
@@ -20,6 +21,7 @@ import re
 import shutil
 import tempfile
 import warnings
+from contextlib import contextmanager
 from dataclasses import replace
 from operator import attrgetter
 
@@ -107,6 +109,58 @@ def _skip_if_conv1d_not_supported(model_id, config_cls, config_kwargs):
 
     if config_cls not in (IA3Config, LoHaConfig, LoKrConfig, LoraConfig):
         pytest.skip("This PEFT method does not support Conv1D layers, skipping this test.")
+
+
+def _is_dunder(name):
+    return name.startswith("__") and name.endswith("__")
+
+
+def _snapshot_public_methods(model):
+    """Map each public method of `model` to the function object implementing it.
+
+    This includes single-underscore methods, since code close to the PEFT/Transformers boundary may patch those (e.g.
+    `_update_model_kwargs_for_generation`). Dunder methods are excluded: several of them (e.g. `__eq__`, `__hash__`,
+    `__str__`) are slot or method wrappers that `getattr` rebuilds on every access, so they are not stable even when
+    comparing two snapshots of the same object.
+
+    Keying on the underlying function means a method that was rebound to a different implementation is detected rather
+    than being hidden behind a fresh bound-method wrapper. Non-callable attributes are skipped on purpose: several
+    (e.g. the `active_adapters` property) build a new object on every access, so comparing their values by identity is
+    not meaningful.
+    """
+    snapshot = {}
+    for name in dir(model):
+        if _is_dunder(name):
+            continue
+        attr = getattr(model, name)
+        if inspect.ismethod(attr):
+            snapshot[name] = attr.__func__
+        elif inspect.isfunction(attr):
+            snapshot[name] = attr
+    return snapshot
+
+
+def _assert_public_methods_unchanged(model, snapshot, context):
+    for name, func in snapshot.items():
+        assert hasattr(model, name), f"{context}: public method {name!r} of the base model disappeared"
+        attr = getattr(model, name)
+        assert getattr(attr, "__func__", attr) is func, (
+            f"{context}: public method {name!r} of the base model was changed"
+        )
+
+
+@contextmanager
+def check_base_model_methods_unchanged(model):
+    """Assert that the public methods of a model's base module are untouched by the wrapped block.
+
+    Pass the PEFT model (or any wrapper exposing `get_base_model`). Use this around operations on a PEFT model to
+    ensure that PEFT does not modify the base model it wraps, in particular not by rebinding its methods (some code
+    paths temporarily patch methods such as `prepare_inputs_for_generation` on the base model and must restore them).
+    """
+    base_model = model.get_base_model() if hasattr(model, "get_base_model") else model
+    snapshot = _snapshot_public_methods(base_model)
+    yield
+    _assert_public_methods_unchanged(base_model, snapshot, "after test block")
 
 
 class PeftCommonTester:
@@ -316,6 +370,7 @@ class PeftCommonTester:
             )
             model = get_peft_model(model, config)
             model = model.to(self.torch_device)
+            base_snapshot = _snapshot_public_methods(model.get_base_model())
 
             with tempfile.TemporaryDirectory() as tmp_dirname:
                 if safe_serialization:
@@ -362,6 +417,10 @@ class PeftCommonTester:
 
                 self.check_modelcard(tmp_dirname, model)
                 self.check_config_json(tmp_dirname, model)
+
+            _assert_public_methods_unchanged(
+                model.get_base_model(), base_snapshot, "after save_pretrained/from_pretrained"
+            )
 
     def _test_save_pretrained_failure(self, model_id, config_cls, config_kwargs, tmp_path):
         # Regression for #3854: a config-write failure must not change the live inference flag.
@@ -690,6 +749,7 @@ class PeftCommonTester:
 
             model = get_peft_model(model, config)
             model = model.to(self.torch_device)
+            base_snapshot = _snapshot_public_methods(model.get_base_model())
 
             self.perturb_trainable_token_weights_if_used(model, config_kwargs)
 
@@ -701,6 +761,9 @@ class PeftCommonTester:
             logits_merged = model(**dummy_input)[0]
             model.unmerge_adapter()
             logits_unmerged = model(**dummy_input)[0]
+
+            # merging and unmerging must not alter the base model's public methods
+            _assert_public_methods_unchanged(model.get_base_model(), base_snapshot, "after merge/unmerge")
 
             model = model.merge_and_unload()
 
@@ -1104,8 +1167,44 @@ class PeftCommonTester:
 
             inputs = self.prepare_inputs_for_testing()
 
-            # check if `generate` works
-            _ = model.generate(**inputs)
+            with check_base_model_methods_unchanged(model):
+                # check if `generate` works
+                _ = model.generate(**inputs)
+
+    def _test_base_model_methods_unchanged(self, model_id, config_cls, config_kwargs):
+        # Wrapping a base model in a PEFT model must not change its interface: every public method present before
+        # wrapping has to still be bound to the same function afterwards, including after inference methods that
+        # temporarily patch the base model (e.g. `generate` swaps `prepare_inputs_for_generation`).
+        if hasattr(self, "instantiate_sd_peft"):
+            # StableDiffusionPipeline wraps several base models (unet, text encoders) and is not a single module
+            pytest.skip("Test not applicable to DiffusionPipeline based tests.")
+
+        with hub_online_once(model_id):
+            model = self.transformers_class.from_pretrained(model_id).to(self.torch_device)
+            snapshot = _snapshot_public_methods(model)
+            has_generate = hasattr(model, "generate")
+
+            config = config_cls(
+                base_model_name_or_path=model_id,
+                **config_kwargs,
+            )
+            peft_model = get_peft_model(model, config)
+
+            # wrapping alone must leave the base model untouched
+            _assert_public_methods_unchanged(peft_model.get_base_model(), snapshot, "after wrapping")
+
+            inputs = self.prepare_inputs_for_testing()
+            with torch.no_grad():
+                peft_model(**inputs)
+
+            # so must a forward pass
+            _assert_public_methods_unchanged(peft_model.get_base_model(), snapshot, "after forward")
+
+            # `generate` temporarily rebinds base model methods; custom models don't have it
+            if has_generate:
+                with torch.no_grad():
+                    peft_model.generate(**inputs)
+                _assert_public_methods_unchanged(peft_model.get_base_model(), snapshot, "after generate")
 
     def _test_generate_pos_args(self, model_id, config_cls, config_kwargs, raises_err: bool):
         with hub_online_once(model_id):
@@ -1164,9 +1263,10 @@ class PeftCommonTester:
             inputs = self.prepare_inputs_for_testing()
 
             # check if `training` works
-            output = model(**inputs)[0]
-            loss = output.sum()
-            loss.backward()
+            with check_base_model_methods_unchanged(model):
+                output = model(**inputs)[0]
+                loss = output.sum()
+                loss.backward()
 
             if issubclass(config_cls, PromptLearningConfig):
                 # we cannot reliably identify the trainable part of the prompt learning method, thus skipping this check
@@ -1923,6 +2023,10 @@ class PeftCommonTester:
 
             output_peft = get_output(peft_model)
 
+            # disabling and re-enabling the adapter temporarily patches the base model, which must be restored afterwards
+            base_model = peft_model.get_base_model() if hasattr(peft_model, "get_base_model") else None
+            base_snapshot = _snapshot_public_methods(base_model) if base_model is not None else None
+
             # first check trivial case is not true that peft does not affect the output; for this to work, init_weight
             # must be False (if the config supports it)
             if isinstance(peft_model, StableDiffusionPipeline):
@@ -1951,6 +2055,8 @@ class PeftCommonTester:
                 # see #1501
                 output_peft_after_disabled = get_output(peft_model)
                 assert torch.allclose(output_peft, output_peft_after_disabled, atol=atol, rtol=rtol)
+
+                _assert_public_methods_unchanged(base_model, base_snapshot, "after disable_adapter")
 
             # TODO: add tests to check if disabling adapters works after calling merge_adapter
 
