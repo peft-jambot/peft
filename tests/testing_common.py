@@ -111,18 +111,26 @@ def _skip_if_conv1d_not_supported(model_id, config_cls, config_kwargs):
         pytest.skip("This PEFT method does not support Conv1D layers, skipping this test.")
 
 
+def _is_dunder(name):
+    return name.startswith("__") and name.endswith("__")
+
+
 def _snapshot_public_methods(model):
     """Map each public method of `model` to the function object implementing it.
 
-    Keying on the underlying function means a method that was rebound to a
-    different implementation is detected rather than being hidden behind a fresh
-    bound-method wrapper. Non-callable attributes are skipped on purpose: several
-    (e.g. the `active_adapters` property) build a new object on every access, so
-    comparing their values by identity is not meaningful.
+    This includes single-underscore methods, since code close to the PEFT/Transformers boundary may patch those (e.g.
+    `_update_model_kwargs_for_generation`). Dunder methods are excluded: several of them (e.g. `__eq__`, `__hash__`,
+    `__str__`) are slot or method wrappers that `getattr` rebuilds on every access, so they are not stable even when
+    comparing two snapshots of the same object.
+
+    Keying on the underlying function means a method that was rebound to a different implementation is detected rather
+    than being hidden behind a fresh bound-method wrapper. Non-callable attributes are skipped on purpose: several
+    (e.g. the `active_adapters` property) build a new object on every access, so comparing their values by identity is
+    not meaningful.
     """
     snapshot = {}
     for name in dir(model):
-        if name.startswith("_"):
+        if _is_dunder(name):
             continue
         attr = getattr(model, name)
         if inspect.ismethod(attr):
