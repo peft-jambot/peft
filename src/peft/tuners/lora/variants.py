@@ -607,44 +607,67 @@ class ALoraLinearVariant(LoraVariant):
         result: torch.Tensor,
         **kwargs,
     ) -> torch.Tensor:
-        alora_offsets = kwargs.get("alora_offsets", None)
+        x = x.to(module.lora_A[active_adapter].weight.dtype)
+        T = result.shape[1] if result.ndim == 3 else 1
+        offsets = _alora_offsets_as_list(kwargs.get("alora_offsets"), T)
+
+        if offsets is None:
+            # The invocation sequence is missing in every row, so the adapter is inactive. This also covers a batch
+            # with mixed adapters in which no row uses an aLoRA adapter.
+            return result
+
         lora_A = module.lora_A[active_adapter]
         lora_B = module.lora_B[active_adapter]
         dropout = module.lora_dropout[active_adapter]
         scaling = module.scaling[active_adapter]
-        x = x.to(lora_A.weight.dtype)
-        result_shape = result.shape
-        B = result_shape[0]  # batch
-        if len(result_shape) == 3:
-            T = result_shape[1]  # tokens
-        else:
-            T = 1
-        D = result_shape[-1]  # dimensions
-        Dx = x.shape[-1]
-        device = result.device
-        if alora_offsets is None:  # use base model only, but ensure 0 gradient
-            mask = torch.zeros((B, T), dtype=torch.bool)
-        else:
-            # If alora_offsets[i] is None, this means that the invocation sequence was not found in the
-            # input. As a result, the weights should not be activated anywhere (equivalent to base model).
-            # Convert None -> 0 and clip to T
-            offsets = torch.tensor(
-                [0 if o is None else min(int(o), T) for o in alora_offsets],
-                device=device,
-                dtype=torch.long,
+
+        if min(offsets) == max(offsets):
+            # All rows activate over the same trailing span, so that span can be sliced directly: no mask, no
+            # gather, no scatter and no device sync. An offset equal to T covers the whole sequence, which is how
+            # single-token forwards arrive here, as the offsets are clamped to T.
+            offset = offsets[0]
+            result[:, T - offset :, :] = (
+                result[:, T - offset :, :] + lora_B(lora_A(dropout(x[:, T - offset :, :]))) * scaling
             )
-            # Mask True on the last `offsets[i]` positions for each row i
-            pos = torch.arange(T, device=device).unsqueeze(0)  # [1, T]
-            mask = pos >= (T - offsets).unsqueeze(1)
+            return result
 
-        # Flatten for vectorization
-        x_flat = x.view(-1, Dx)
-        res_flat = result.view(-1, D)
+        # Ragged batch, so the active spans differ per row: apply the adapter to the active tokens and add the
+        # result back. Note that applying the adapter to all tokens and zeroing the inactive ones instead would
+        # change the number of rows the adapter matmul sees, which changes its rounding and therefore the model
+        # output.
+        mask = _alora_mask(offsets, T, result.device)
+        x_flat = x.view(-1, x.shape[-1])
+        res_flat = result.view(-1, result.shape[-1])
         mask_flat = mask.view(-1)
-
-        # Compute adapter on the selected tokens only
         res_flat[mask_flat] += lora_B(lora_A(dropout(x_flat[mask_flat]))) * scaling
         return result
+
+
+def _alora_offsets_as_list(alora_offsets: Optional[list[Optional[int]]], T: int) -> Optional[list[int]]:
+    """
+    Normalize the aLoRA offsets for one layer forward.
+
+    Returns None if no row of the batch activates the adapter, which is the case when the invocation sequence was not
+    found in the input (its offset is None). Otherwise, the offsets are clamped to the sequence length T. Rows whose
+    invocation sequence is missing get an offset of 0, which keeps them inactive.
+
+    Note that `alora_offsets` is calculated once per model forward, not per layer, see `calculate_alora_offsets`.
+    """
+    if alora_offsets is None:
+        return None
+
+    offsets = [0 if offset is None else min(offset, T) for offset in alora_offsets]
+    if max(offsets) == 0:
+        # No row has a valid invocation sequence, so the adapter is inactive for all of them
+        return None
+    return offsets
+
+
+def _alora_mask(offsets: list[int], T: int, device: torch.device) -> torch.Tensor:
+    """[B, T] mask that is True on the last `offsets[i]` positions of each row."""
+    offsets_t = torch.tensor(offsets, device=device, dtype=torch.long)
+    pos = torch.arange(T, device=device).unsqueeze(0)  # [1, T]
+    return pos >= (T - offsets_t).unsqueeze(1)
 
 
 def calculate_alora_offsets(
