@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PEFT · set_adapter / add_adapter flow graph</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <div>
+        <div class="brand-title">PEFT <code>set_adapter</code> / <code>add_adapter</code> flow</div>
+        <div class="brand-sub" id="brandSub">loading…</div>
+      </div>
+    </div>
+
+    <div class="modes" role="group" aria-label="Interaction mode">
+      <button class="mode active" data-mode="select" title="Pan, zoom, drag nodes, box-select (V)">Select</button>
+      <button class="mode" data-mode="connect" title="Drag node→node (or click→click) to add an edge (C)">Connect</button>
+      <button class="mode" data-mode="note" title="Click empty canvas to drop a note node (N)">Note</button>
+    </div>
+
+    <div class="zoominfo">
+      <span id="zoomPct">100%</span>
+      <span class="lod" id="lodBadge">detail: all</span>
+    </div>
+
+    <div class="tools">
+      <select id="lodSelect" title="Detail shown by zoom level">
+        <option value="auto">Auto detail (by zoom level)</option>
+        <option value="all">Always: everything</option>
+        <option value="3">Always: ≤ level 3</option>
+        <option value="2">Always: ≤ level 2</option>
+      </select>
+      <button id="btnFit" title="Fit graph to view (F)">Fit</button>
+      <button id="btnRelayout" title="Reset all node positions to the computed layout (L)">Re-layout</button>
+      <button id="btnExport" title="Download the graph (incl. your nodes, edges, notes) as JSON">Export JSON</button>
+      <button id="btnImport" title="Load a previously exported JSON">Import</button>
+      <button id="btnPng" title="Download a PNG of the whole graph">PNG</button>
+      <button id="btnUnhide" hidden title="Show every element you hid">Restore hidden</button>
+      <button id="btnReset" class="danger" title="Remove your nodes/edges/notes/positions and reload the baseline">Reset mine</button>
+      <input type="file" id="fileInput" accept="application/json" hidden>
+      <button id="btnHelp" title="Show / hide the gestures help">?</button>
+    </div>
+
+    <div class="searchwrap">
+      <input id="search" type="search" placeholder="search nodes…  (/)" autocomplete="off">
+      <span id="searchCount" class="searchcount"></span>
+    </div>
+  </header>
+
+  <main>
+    <div id="cy"></div>
+    <div id="laneTitles"></div>
+    <svg id="overlay"></svg>
+    <div id="hint" class="hint"></div>
+    <div id="legend" class="legend">
+      <div class="legend-title">Legend <button id="legendToggle" title="collapse">–</button></div>
+      <div class="legend-body">
+        <div class="lg"><span class="sw kind-entry"></span> entry point</div>
+        <div class="lg"><span class="sw kind-method"></span> method</div>
+        <div class="lg"><span class="sw kind-tuner"></span> tuner-specific hook</div>
+        <div class="lg"><span class="sw kind-layer"></span> layer / wrapper</div>
+        <div class="lg"><span class="sw kind-branch"></span> branch</div>
+        <div class="lg"><span class="sw kind-guard"></span> guard / raises</div>
+        <div class="lg"><span class="sw kind-mutate-base"></span> base model state (mutated)</div>
+        <div class="lg"><span class="sw kind-mutate-adapter"></span> adapter state (mutated)</div>
+        <div class="lg"><span class="sw kind-note"></span> note (yours)</div>
+        <div class="lgl"><span class="ln call"></span> call</div>
+        <div class="lgl"><span class="ln branch"></span> branch (T/F)</div>
+        <div class="lgl"><span class="ln cross"></span> cross-flow reference</div>
+        <div class="lgl"><span class="ln mutate"></span> adapter-state write</div>
+        <div class="lgl"><span class="ln mutate-base"></span> base-model write</div>
+        <div class="lgl"><span class="ln user"></span> your edge</div>
+        <div class="lg sep">a <b>halo</b> around a node = that call mutates state</div>
+        <div class="lg sep">levels: <b>1</b> landmarks · <b>2</b> calls · <b>3</b> internals · <b>4</b> LoRA deep</div>
+      </div>
+    </div>
+    <div id="help" class="help">
+      <b>Gestures</b>
+      <div>wheel / pinch = zoom — <b>more detail appears as you zoom in</b></div>
+      <div>drag background = pan · drag node = move (saved locally)</div>
+      <div>click node = open panel · dbl-click = focus neighborhood (note nodes: rename)</div>
+      <div><b>click a lane title</b> = collapse/expand that flow · then <b>Fit</b></div>
+      <div>a <b>halo</b> = that call mutates model state (red halo: base weights/modules, teal: adapter entries). The bottom lane shows <i>what</i> gets mutated.</div>
+      <div>Connect mode: drag node→node or click→click · Note mode: click canvas</div>
+      <div>Shift+click = multi-select · Delete = remove/hide selection</div>
+      <button id="helpToggle">got it</button>
+    </div>
+  </main>
+
+  <aside id="panel">
+    <div class="panel-empty">
+      <h3>Nothing selected</h3>
+      <p>Click any node to see the exact source location, what it does, and the calls in/out.</p>
+      <p class="muted">Zoom in to reveal deeper levels: <b>landmarks → calls → internals</b>. The panel works at every level.</p>
+    </div>
+    <div class="panel-body" id="panelBody" hidden></div>
+  </aside>
+
+</div>
+
+<script src="vendor/cytoscape.min.js"></script>
+<script src="graph-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
