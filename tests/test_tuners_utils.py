@@ -25,6 +25,7 @@ from diffusers import StableDiffusionPipeline
 from parameterized import parameterized
 from torch import nn
 from torch.distributed.algorithms._checkpoint.checkpoint_wrapper import apply_activation_checkpointing
+from torch.overrides import TorchFunctionMode
 from transformers import (
     AutoModel,
     AutoModelForCausalLM,
@@ -2975,3 +2976,55 @@ class TestTunerStateDictKeyPrefixes:
         prefixes = _get_tuner_state_dict_key_prefixes(model)
         assert len(prefixes) > 0  # sanity check
         assert not any(prefix.startswith("base_model.model.emb") for prefix in prefixes)
+
+
+class TestCastOutputDtype:
+    """Check that `_cast_output_dtype` skips the cast when the dtype already matches.
+
+    `Tensor.to` is a no-op when the dtype is unchanged, so the cast can be skipped without changing the result. This
+    matters for the case where the adapter runs in the same dtype as the base layer, e.g. bf16 adapters on a bf16 base
+    layer, since every tuner layer otherwise pays the dispatch overhead once per forward call.
+    """
+
+    @pytest.fixture
+    def layer(self):
+        model = get_peft_model(MLP(), LoraConfig(target_modules=["lin0"]))
+        return model.base_model.model.lin0
+
+    @staticmethod
+    def count_to_calls(fn):
+        """Call `fn` and count how often `torch.Tensor.to` is called in the process."""
+        calls = []
+
+        class CountTo(TorchFunctionMode):
+            def __torch_function__(self, func, types, args=(), kwargs=None):
+                if func is torch.Tensor.to:
+                    calls.append(args[0])
+                return func(*args, **(kwargs or {}))
+
+        with CountTo():
+            result = fn()
+        return result, len(calls)
+
+    def test_no_cast_when_dtype_matches(self, layer):
+        x = torch.randn(2, 10)
+        out, n_calls = self.count_to_calls(lambda: layer._cast_output_dtype(x, x.dtype))
+        assert out is x
+        assert n_calls == 0
+
+    def test_cast_when_dtype_differs(self, layer):
+        x = torch.randn(2, 10)
+        out, n_calls = self.count_to_calls(lambda: layer._cast_output_dtype(x, torch.float64))
+        assert out is not x
+        assert out.dtype == torch.float64
+        assert n_calls == 1
+
+    @pytest.mark.parametrize("dtype", [torch.float32, torch.bfloat16])
+    def test_forward_needs_no_cast_when_dtypes_match(self, dtype):
+        # base layer and adapter in the same dtype means the forward should not cast at all
+        model = get_peft_model(MLP().to(dtype), LoraConfig(target_modules=["lin0"]), autocast_adapter_dtype=False)
+        layer = model.base_model.model.lin0
+        x = torch.randn(2, 10, dtype=dtype)
+        out, n_calls = self.count_to_calls(lambda: layer(x))
+        assert out.dtype == dtype
+        assert n_calls == 0

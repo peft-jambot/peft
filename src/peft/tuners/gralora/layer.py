@@ -383,7 +383,7 @@ class Linear(nn.Linear, GraloraLayer):
                     hybrid_output = hybrid_output.reshape(result.shape)
                     result += scaling * hybrid_output.to(torch_result_dtype)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:

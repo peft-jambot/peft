@@ -249,7 +249,7 @@ class Linear(nn.Linear, VBLoRALayer):
                 x = x.to(self.vblora_vector_bank[active_adapter].dtype)
                 dropout = self.vblora_dropout[active_adapter]
                 result = result + F.linear(F.linear(dropout(x), A), B)
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:

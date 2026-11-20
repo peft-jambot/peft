@@ -483,7 +483,7 @@ class Linear(nn.Module, PsoftLayer):
                 delta_y = (xr - xa) @ B_c.t()
                 result = result + (delta_y * scaling)
 
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
 
         return result
 

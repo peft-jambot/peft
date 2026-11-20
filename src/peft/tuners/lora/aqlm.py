@@ -76,7 +76,7 @@ class AqlmLoraLinear(torch.nn.Module, LoraLayer):
 
             output = lora_B(lora_A(dropout(x)))
             if requires_conversion:
-                output = output.to(expected_dtype)
+                output = self._cast_output_dtype(output, expected_dtype)
             output = output * scaling
             result += output
         return result

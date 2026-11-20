@@ -285,7 +285,7 @@ class WaveFTLinear(nn.Module, WaveFTLayer):
                 x = self._cast_input_dtype(x, delta_w.dtype)
                 result = result + F.linear(x, delta_w)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:

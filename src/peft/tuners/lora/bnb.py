@@ -224,7 +224,7 @@ if is_bnb_available():
                 if active_adapter not in self.lora_variant:  # vanilla LoRA:
                     output = lora_B(lora_A(dropout(sub_batch))) * scaling
                     if requires_conversion:
-                        output = output.to(expected_dtype)
+                        output = self._cast_output_dtype(output, expected_dtype)
                     result[sub_batch_indices_list[i]] += output
                 else:
                     alora_offsets = variant_kwargs.get("alora_offsets", None)
@@ -239,7 +239,7 @@ if is_bnb_available():
                         **kwargs,
                     )
                     if requires_conversion:
-                        output = output.to(expected_dtype)
+                        output = self._cast_output_dtype(output, expected_dtype)
                     result[sub_batch_indices_list[i]] = output
 
             return result
@@ -275,7 +275,7 @@ if is_bnb_available():
                     if active_adapter not in self.lora_variant:  # vanilla LoRA
                         output = lora_B(lora_A(dropout(x))) * scaling
                         if requires_conversion:
-                            output = output.to(expected_dtype)
+                            output = self._cast_output_dtype(output, expected_dtype)
                         result = result + output
                     else:
                         result = self.lora_variant[active_adapter].forward(
@@ -287,7 +287,7 @@ if is_bnb_available():
                             **kwargs,
                         )
                         if requires_conversion:
-                            result = result.to(expected_dtype)
+                            result = self._cast_output_dtype(result, expected_dtype)
 
             return result
 
@@ -510,7 +510,7 @@ if is_bnb_4bit_available():
                 if active_adapter not in self.lora_variant:  # vanilla LoRA
                     output = lora_B(lora_A(dropout(sub_batch))) * scaling
                     if requires_conversion:
-                        output = output.to(expected_dtype)
+                        output = self._cast_output_dtype(output, expected_dtype)
                     result[sub_batch_indices_list[i]] += output
                 else:
                     alora_offsets = variant_kwargs.get("alora_offsets", None)
@@ -525,7 +525,7 @@ if is_bnb_4bit_available():
                         **kwargs,
                     )
                     if requires_conversion:
-                        output = output.to(expected_dtype)
+                        output = self._cast_output_dtype(output, expected_dtype)
                     result[sub_batch_indices_list[i]] = output
 
             return result
@@ -568,7 +568,7 @@ if is_bnb_4bit_available():
                     if active_adapter not in self.lora_variant:  # vanilla LoRA
                         output = lora_B(lora_A(dropout(x))) * scaling
                         if requires_conversion:
-                            output = output.to(expected_dtype)
+                            output = self._cast_output_dtype(output, expected_dtype)
                         result = result + output
                     else:
                         result = self.lora_variant[active_adapter].forward(
@@ -580,7 +580,7 @@ if is_bnb_4bit_available():
                             **kwargs,
                         )
                         if requires_conversion:
-                            result = result.to(expected_dtype)
+                            result = self._cast_output_dtype(result, expected_dtype)
 
             return result
 

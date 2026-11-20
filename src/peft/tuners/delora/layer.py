@@ -234,7 +234,7 @@ class DeloraLinear(nn.Module, DeloraLayer):
             result = self.base_layer(x, *args, **kwargs)
         else:
             if not self.active_adapters:
-                return self.base_layer(x, *args, **kwargs).to(previous_dtype)
+                return self._cast_output_dtype(self.base_layer(x, *args, **kwargs), previous_dtype)
 
             base_out = self.base_layer(x, *args, **kwargs)
             add_out = torch.zeros_like(base_out)
@@ -263,7 +263,7 @@ class DeloraLinear(nn.Module, DeloraLayer):
 
             result = base_out + add_out.to(base_out.dtype)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:

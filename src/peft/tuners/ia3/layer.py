@@ -349,7 +349,7 @@ class _ConvNd(nn.Module, IA3Layer):
                 result = self.base_layer(x, *args, **kwargs)
                 result = result.to(dtype) * ia3_scaling
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
 

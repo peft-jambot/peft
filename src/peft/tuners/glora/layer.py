@@ -385,7 +385,7 @@ class GloraLinear(nn.Module, GloraLayer):
                 result = result + adapted
             if num_active_adapters > 0:
                 result = result - num_active_adapters * base_result
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
 
         return result
 

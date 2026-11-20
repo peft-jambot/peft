@@ -1213,7 +1213,7 @@ class Linear(nn.Module, LoraLayer):
                         **kwargs,
                     )
 
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
 
         return result
 
@@ -1663,7 +1663,7 @@ class Embedding(nn.Module, LoraLayer):
                         **variant_kwargs,
                         **kwargs,
                     )
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
 
         return result
 
@@ -1969,7 +1969,7 @@ class _ConvNd(nn.Module, LoraLayer):
                         **kwargs,
                     )
 
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
         return result
 
     def __repr__(self) -> str:

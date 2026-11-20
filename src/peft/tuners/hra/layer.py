@@ -293,7 +293,7 @@ class HRALinear(nn.Module, HRALayer):
                 x = x.to(dtype=orig_dtype)
                 result = F.linear(input=x, weight=base_layer.weight, bias=base_layer.bias)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:
@@ -480,7 +480,7 @@ class HRAConv2d(nn.Module, HRALayer):
                     result = F.linear(input=patches, weight=orig_weight, bias=base_layer.bias).transpose(1, 2)
                     result = result.view(x.shape[0], self.out_features, height, width)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:

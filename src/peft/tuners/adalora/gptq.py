@@ -62,7 +62,7 @@ class SVDQuantLinear(torch.nn.Module, AdaLoraLayer):
             # not the intermediate result, unlike for SVDLinear8bitLT and
             # SVDLinear4bit, is that correct?
             if requires_conversion:
-                output = output.to(expected_dtype)
+                output = self._cast_output_dtype(output, expected_dtype)
             result += output
         return result
 

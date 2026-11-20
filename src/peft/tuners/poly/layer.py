@@ -157,7 +157,7 @@ class Linear(nn.Module, PolyLayer):
                 x = x.to(A.dtype)
                 result += x.bmm(A).bmm(B) / r
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:

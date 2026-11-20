@@ -376,7 +376,7 @@ class MissLinear(nn.Module, MissLayer):
                 x = self._cast_input_dtype(x, miss.dtype)
                 result = result + torch.sum(dropout(x).reshape(*x.shape[:-1], x.size(-1) // r, r), dim=-2) @ miss
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:

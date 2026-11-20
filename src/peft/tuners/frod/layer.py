@@ -342,7 +342,7 @@ class Linear(nn.Linear, FrodLayer):
                 self._move_base_weight_to_device(x.device)
                 result = self.base_layer(x, *args, **kwargs)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:

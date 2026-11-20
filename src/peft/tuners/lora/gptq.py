@@ -103,7 +103,7 @@ class GPTQLoraLinear(torch.nn.Module, LoraLayer):
                     result=result,
                 )
 
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
         return result
 
     def __repr__(self) -> str:

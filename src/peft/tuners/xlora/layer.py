@@ -107,7 +107,7 @@ class XLoraLinearLayer(XLoraLayer):
 
         previous_dtype = x.dtype
         if self.adapters_disabled:
-            return self.target.base_layer(x, *args, **kwargs).to(previous_dtype)
+            return self.target._cast_output_dtype(self.target.base_layer(x, *args, **kwargs), previous_dtype)
 
         if scalings is not None:
             xlora_scalings = self.get_maybe_topk_scalings(scalings)
@@ -135,7 +135,7 @@ class XLoraLinearLayer(XLoraLayer):
                     scaling_weight = 1
                 result += lora_B(lora_A(dropout(x_mod))) * scaling * scaling_weight
 
-        result = result.to(previous_dtype)
+        result = self.target._cast_output_dtype(result, previous_dtype)
         return result
 
 
@@ -218,7 +218,7 @@ class XLoraConv2dLayer(XLoraLayer):
         previous_dtype = x.dtype
 
         if self.adapters_disabled:
-            return self.target.base_layer(x, *args, **kwargs).to(previous_dtype)
+            return self.target._cast_output_dtype(self.target.base_layer(x, *args, **kwargs), previous_dtype)
 
         if scalings is not None:
             xlora_scalings = self.get_maybe_topk_scalings(scalings)
@@ -246,5 +246,5 @@ class XLoraConv2dLayer(XLoraLayer):
                     scaling_weight = 1
                 result += lora_B(lora_A(dropout(x_mod))) * scaling * scaling_weight
 
-        result = result.to(previous_dtype)
+        result = self.target._cast_output_dtype(result, previous_dtype)
         return result

@@ -342,7 +342,7 @@ class Linear(nn.Linear, RandLoraLayer):
                 x = x.to(update_A.dtype)
                 scaling = self.scaling[active_adapter]
                 result = result + F.linear(F.linear(dropout(x), update_B), update_A) * scaling
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:

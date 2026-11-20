@@ -223,7 +223,7 @@ if is_bnb_available():
                         hira_out = hira_out.to(expected_dtype)
                     result = result + hira_out
                     if requires_conversion:
-                        result = result.to(expected_dtype)
+                        result = self._cast_output_dtype(result, expected_dtype)
 
             return result
 
@@ -442,7 +442,7 @@ if is_bnb_4bit_available():
                         hira_out = hira_out.to(expected_dtype)
                     result = result + hira_out
                     if requires_conversion:
-                        result = result.to(expected_dtype)
+                        result = self._cast_output_dtype(result, expected_dtype)
 
             return result
 

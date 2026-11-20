@@ -2340,6 +2340,17 @@ class BaseTunerLayer(ABC):
             return x
         return x.to(dtype=dtype)
 
+    def _cast_output_dtype(self, x: torch.Tensor, dtype: torch.dtype) -> torch.Tensor:
+        """Cast the output of the forward method back to the dtype of the base layer output.
+
+        `Tensor.to` returns the input tensor unchanged when the dtype already matches, so skipping the call does not
+        change the result, it only avoids the dispatch overhead. This matters for the many cases where the adapter
+        runs in the same dtype as the base layer, e.g. bf16 adapters on a bf16 base layer.
+        """
+        if x.dtype == dtype:
+            return x
+        return x.to(dtype=dtype)
+
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:
         """
         Whether it is possible for this layer type to be converted to LoRA.

@@ -217,7 +217,7 @@ class LoraParallelLinear(nn.Module, LoraLayer):
                 x = self._cast_input_dtype(x, lora_A.weight.dtype)
                 result = result + lora_B(lora_A(dropout(x))) * scaling
 
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
         return result, bias
 
     def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None) -> None:

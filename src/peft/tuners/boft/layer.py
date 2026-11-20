@@ -667,7 +667,7 @@ class Linear(nn.Module, BOFTLayer):
             if bias is not None:
                 result = result + bias
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:
@@ -1016,7 +1016,7 @@ class Conv2d(nn.Module, BOFTLayer):
             bias = self._cast_input_dtype(self.base_layer.bias, scaled_rotated_weight.dtype)
             result = self.base_layer._conv_forward(x, scaled_rotated_weight, bias=bias)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def extra_repr(self) -> str:

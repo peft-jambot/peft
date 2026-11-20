@@ -627,7 +627,7 @@ class Linear(nn.Module, OFTLayer):
 
             result = self.base_layer(x.to(previous_dtype), *args, **kwargs)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:
@@ -885,7 +885,7 @@ class Conv2d(nn.Module, OFTLayer):
             x = self._cast_input_dtype(x, orig_weight.dtype)
             result = base_layer._conv_forward(x, rotated_weight, bias=base_layer.bias)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:

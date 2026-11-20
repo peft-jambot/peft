@@ -68,7 +68,7 @@ if is_bnb_available():
 
                 output = dropout(x) @ (lora_A * lora_E).T @ lora_B.T
                 if requires_conversion:
-                    output = output.to(expected_dtype)
+                    output = self._cast_output_dtype(output, expected_dtype)
                 output = output * scaling / ranknum
                 # inplace operation on view is forbidden for MatMul8bitLtBackward, so avoid it
                 result = result + output
@@ -132,7 +132,7 @@ if is_bnb_4bit_available():
 
                 output = dropout(x) @ (lora_A * lora_E).T @ lora_B.T
                 if requires_conversion:
-                    output = output.to(expected_dtype)
+                    output = self._cast_output_dtype(output, expected_dtype)
                 output = output * scaling / ranknum
                 result += output
             return result

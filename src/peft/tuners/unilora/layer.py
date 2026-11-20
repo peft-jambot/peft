@@ -252,5 +252,5 @@ class Linear(nn.Linear, UniLoraLayer):
 
                 result = result + F.linear(F.linear(dropout(x), A), B)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result

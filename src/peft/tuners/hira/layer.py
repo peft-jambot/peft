@@ -272,7 +272,7 @@ class Linear(nn.Module, HiraLayer):
                 )
                 result = result + hira_result
 
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
 
         return result
 
@@ -429,7 +429,7 @@ class Embedding(nn.Module, HiraLayer):
             hira_out = F.embedding(x, eff_weight)
             result = result + hira_out
 
-        return result.to(torch_result_dtype)
+        return self._cast_output_dtype(result, torch_result_dtype)
 
     def __repr__(self) -> str:
         rep = super().__repr__()
@@ -598,7 +598,7 @@ class _ConvNd(nn.Module, HiraLayer):
                 hira_out = base._conv_forward(x_drop, eff_weight, bias=None)
                 result = result + hira_out
 
-            result = result.to(torch_result_dtype)
+            result = self._cast_output_dtype(result, torch_result_dtype)
         return result
 
     def __repr__(self) -> str:

@@ -179,7 +179,7 @@ if is_hqq_available():
                 sub_batch = x[sub_batch_indices_list[i]]
                 output = lora_B(lora_A(dropout(sub_batch))) * scaling
                 if requires_conversion:
-                    output = output.to(expected_dtype)
+                    output = self._cast_output_dtype(output, expected_dtype)
                 result[sub_batch_indices_list[i]] += output
 
             return result
@@ -223,7 +223,7 @@ if is_hqq_available():
                         )
 
                     if requires_conversion:
-                        result = result.to(expected_dtype)
+                        result = self._cast_output_dtype(result, expected_dtype)
 
             return result
 

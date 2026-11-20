@@ -453,7 +453,7 @@ class Linear(nn.Module, AdamssLayer):
                 result = result + adapter_delta
 
         # Cast back to original dtype
-        return result.to(previous_dtype)
+        return self._cast_output_dtype(result, previous_dtype)
 
     def merge(self, safe_merge: bool = False, adapter_names: Optional[list[str]] = None) -> None:
         """

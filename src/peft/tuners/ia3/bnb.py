@@ -65,7 +65,7 @@ if is_bnb_available():
                 result = result * ia3_scaling
 
             if requires_conversion:
-                result = result.to(expected_dtype)
+                result = self._cast_output_dtype(result, expected_dtype)
 
             return result
 
@@ -121,7 +121,7 @@ if is_bnb_4bit_available():
             # This has been duplicated here.
 
             if requires_conversion:
-                result = result.to(expected_dtype)
+                result = self._cast_output_dtype(result, expected_dtype)
 
             return result
 

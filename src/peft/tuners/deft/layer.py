@@ -359,7 +359,7 @@ class DeftLinear(nn.Module, DeftLayer):
                     x_drop = self.deft_dropout[active_adapter](x)
                     result = result + F.linear(x_drop, R) @ Q_P.transpose(0, 1)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:

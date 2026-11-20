@@ -316,7 +316,7 @@ class Linear(nn.Linear, PveraLayer):
                 mu, logvar = (lambda_d * F.linear(dropout(x), sliced_A)).chunk(2, dim=-1)
                 result = result + lambda_b * F.linear(self._reparametrize(mu, logvar, active_adapter), sliced_B)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def __repr__(self) -> str:

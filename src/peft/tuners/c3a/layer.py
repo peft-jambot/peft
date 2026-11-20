@@ -198,7 +198,7 @@ class C3ALinear(nn.Module, C3ALayer):
                 x = BlockCircularConvolution.apply(x, c3a_kernel) / x.size(-1)
                 result += x.to(result.dtype)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
     def supports_lora_conversion(self, adapter_name: str = "default") -> bool:

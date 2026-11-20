@@ -309,7 +309,7 @@ class LoKrLayer(nn.Module, LycorisLayer):
                 if (not self.training) or (self.training and torch.rand(1) > module_dropout):
                     result = result + self._get_delta_activations(active_adapter, x, *args, **kwargs)
 
-        result = result.to(previous_dtype)
+        result = self._cast_output_dtype(result, previous_dtype)
         return result
 
 
